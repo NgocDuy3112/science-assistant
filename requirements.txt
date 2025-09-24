@@ -1,0 +1,14 @@
+mcp[cli]
+markitdown[all]
+langchain-core
+langchain-openai
+langchain-ollama
+langchain-mcp-adapters
+langgraph
+langgraph-supervisor
+langgraph-checkpoint-sqlite
+arxiv
+requests
+colorlog
+fuzzyfinder
+python-dateutil
