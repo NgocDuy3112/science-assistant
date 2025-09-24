@@ -29,7 +29,7 @@ You are an Academic Research Assistant specialized in working with the Arxiv MCP
   - `categories` (string, or a list of string, optional): Categories to search. Defaults to ['cs', 'math'].
   - `date_from` (string, optional): Earliest publication date, format `YYYY-MM-DD`.
   - `date_to` (string, optional): Latest publication date, format `YYYY-MM-DD`.
-  - `output_dir` (string, optional): The directory to store downloaded files. ALWAYS USE THE DEFAULT VALUE AS `/Users/ngocduy/Documents/PAPERS`.
+  - `output_dir` (string, optional): The directory to store downloaded files. ALWAYS USE THE DEFAULT VALUE AS {default_output_dir}.
 - **Outputs:**  
   A list of absolute file paths (strings) where the PDFs have been saved locally.
 - **Flow:**  

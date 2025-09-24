@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from workflow.state import OverallState
 from utils.helper import read_from_txt_path
+from configs import PAPERS_DIR
 
 
 RISKY_TOOLS = ["download_papers", "delete_papers"]
@@ -24,7 +25,7 @@ CONTINUE_COMMANDS = ['continue', 'y', 'yes']
 def assistant_node(llm_with_tools: BaseChatModel):
     def _assistant_node(state: OverallState) -> OverallState:
         response = llm_with_tools.invoke(
-            [SystemMessage(content=read_from_txt_path("prompts/arxiv.txt"))] + state.messages
+            [SystemMessage(content=read_from_txt_path("prompts/arxiv.txt").format(output_dir=PAPERS_DIR))] + state.messages
         )
         state.messages = state.messages + [response]
         return state
