@@ -13,7 +13,7 @@ from typing_extensions import Literal
 from uuid import uuid4
 
 
-from workflow.state import OverallState
+from backend.workflow.state import OverallState
 from utils.helper import read_from_txt_path
 from configs import PAPERS_DIR
 

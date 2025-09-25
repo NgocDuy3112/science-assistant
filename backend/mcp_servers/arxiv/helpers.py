@@ -2,6 +2,7 @@ from datetime import datetime
 from log.logger import get_logger
 from fuzzyfinder import fuzzyfinder
 import os
+import pymupdf
 
 
 logger = get_logger("mcp_arxiv")
@@ -82,3 +83,8 @@ def _fuzzy_find_filenames(query: str, directory: str) -> list[str]:
     except Exception as e:
         logger.error(f"Error during fuzzy file search: {e}")
         return []
+
+
+
+def index_papers_from_arxiv():
+    pass
