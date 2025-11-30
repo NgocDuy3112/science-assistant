@@ -13,19 +13,22 @@ from typing_extensions import Literal
 from uuid import uuid4
 
 
-from backend.workflow.state import OverallState
-from utils.helper import read_from_txt_path
-from configs import PAPERS_DIR
+from app.schemas.state import OverallState
+from app.utils.helpers import read_from_txt_path
+from app.configs import settings
 
 
-RISKY_TOOLS = ["download_papers", "delete_papers"]
+RISKY_TOOLS = [
+    "download_papers", 
+    "delete_papers",
+]
 CONTINUE_COMMANDS = ['continue', 'y', 'yes']
 
 
 def assistant_node(llm_with_tools: BaseChatModel):
     def _assistant_node(state: OverallState) -> OverallState:
         response = llm_with_tools.invoke(
-            [SystemMessage(content=read_from_txt_path("prompts/arxiv.txt").format(output_dir=PAPERS_DIR))] + state.messages
+            [SystemMessage(content=read_from_txt_path(settings.ARXIV_PROMPT_PATH).format(default_output_dir=settings.PAPERS_DIR))] + state.messages
         )
         state.messages = state.messages + [response]
         return state
@@ -33,7 +36,7 @@ def assistant_node(llm_with_tools: BaseChatModel):
 
 
 
-def assistant_router(state: OverallState) -> Literal["tools_node", "human_node", END]: # type: ignore
+def assistant_router(state: OverallState) -> Literal["tools_node", "human_node", "summarize_node", END]: # type: ignore
     response: AIMessage = state.messages[-1]
     if response.tool_calls:
         if any(tool_call["name"] in RISKY_TOOLS for tool_call in response.tool_calls):
@@ -41,6 +44,11 @@ def assistant_router(state: OverallState) -> Literal["tools_node", "human_node",
         return "tools_node"
     else:
         return END
+
+
+
+def summarize_node(state: OverallState) -> OverallState:
+    pass
 
 
 

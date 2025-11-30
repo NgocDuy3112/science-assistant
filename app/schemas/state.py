@@ -12,7 +12,11 @@ class OverallState(BaseModel):
     
     Attributes:
         messages: The list of messages in the conversation.
-        decision
+        pdf_path: The path of the paper need to be summarized.
+        summary: The summary of a paper need to be summarized.
+        decision: Decide which action to do next
     """
     messages: Annotated[list[BaseMessage], add_messages] = []
+    pdf_path: str
+    summary: str | None = None
     decision: Literal["continue", "reject"] | None = Field(default=None)

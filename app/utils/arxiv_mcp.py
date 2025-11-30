@@ -1,11 +1,12 @@
 from datetime import datetime
-from log.logger import get_logger
 from fuzzyfinder import fuzzyfinder
 import os
 import pymupdf
+import pymupdf4llm
+from langchain_core.documents import Document
+from langchain_text_splitters import MarkdownTextSplitter
 
-
-logger = get_logger("mcp_arxiv")
+from app.logger import global_logger
 
 
 VALID_CATEGORIES = [
@@ -32,6 +33,7 @@ VALID_CATEGORIES = [
 ]
 
 
+
 def _validate_categories(categories: list[str]) -> bool:
     """Validate that all provided categories are valid arXiv categories."""
     for category in categories:
@@ -40,31 +42,31 @@ def _validate_categories(categories: list[str]) -> bool:
         else:
             prefix = category
         if prefix not in VALID_CATEGORIES:
-            logger.warning(f"Unknown category prefix: {prefix}")
+            global_logger.warning(f"Unknown category prefix: {prefix}")
             return False
     return True
+
 
 
 def _optimize_query(query: str) -> str:
     """Minimal query optimization - preserve user intent while fixing obvious issues."""
 
-    # Don't modify queries with existing field specifiers (ti:, au:, abs:, cat:)
     if any(
         field in query
         for field in ["ti:", "au:", "abs:", "cat:", "AND", "OR", "ANDNOT"]
     ):
-        logger.debug("Field-specific or boolean query detected - no optimization")
+        global_logger.debug("Field-specific or boolean query detected - no optimization")
         return query
 
     # Don't modify queries that are already quoted
     if query.startswith('"') and query.endswith('"'):
-        logger.debug("Pre-quoted query detected - no optimization")
+        global_logger.debug("Pre-quoted query detected - no optimization")
         return query
 
     # For very long queries (>10 terms), suggest user be more specific rather than auto-converting
     terms = query.split()
     if len(terms) > 10:
-        logger.warning(
+        global_logger.warning(
             f"Very long query ({len(terms)} terms) - consider using quotes for phrases or field-specific searches"
         )
 
@@ -72,19 +74,36 @@ def _optimize_query(query: str) -> str:
     return query
 
 
+
 def _fuzzy_find_filenames(query: str, directory: str) -> list[str]:
     try:
-        for root, dirs, files in os.walk(directory):
-            matches = list(fuzzyfinder(query, files))
-            if matches:
-                # Get absolute paths
-                abs_paths = [os.path.abspath(os.path.join(root, match)) for match in matches]
-                return abs_paths
+        filenames = [
+            os.path.join(root, file)
+            for root, _, files in os.walk(directory, topdown=True)
+            for file in files
+        ]
+        matches = list(fuzzyfinder(query, filenames))
+        return matches
     except Exception as e:
-        logger.error(f"Error during fuzzy file search: {e}")
+        global_logger.error(f"Error during fuzzy file search: {e}")
         return []
 
 
 
-def index_papers_from_arxiv():
-    pass
+def _create_documents_from_pdf(pdf_path: str) -> list[Document]:
+    pdf = pymupdf.open(pdf_path)
+    md_page_chunks = pymupdf4llm.to_markdown(pdf_path, page_chunks=True)
+    documents: list[Document] = []
+    for page_number, page_chunk in enumerate(md_page_chunks):
+        metadata = {
+            'file_path': pdf_path,
+            'title': os.path.basename(pdf_path),
+            'toc_items': page_chunk['toc_items'],
+            'tables': [table.extract() for table in pdf[page_number].find_tables()]
+        }
+        text = page_chunk['text']
+        documents.append(Document(
+            page_content = text,
+            metadata = metadata
+        ))
+    return documents

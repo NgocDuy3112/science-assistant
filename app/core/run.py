@@ -13,8 +13,9 @@ from langgraph.types import Command
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from configs import SQLITE_CHECKPOINTS_URI, CHAT_MODEL_NAME
-from workflow.graph import build_graph
+from app.configs import settings
+from app.core.graph import build_graph
+
 
 
 
@@ -34,10 +35,10 @@ async def process_tool_call_chunk(chunk: ToolCallChunk):
 
 
 async def stream_graph_responses(
-        input: dict[str, Any] | Command,
-        graph: CompiledStateGraph,
-        **kwargs
-        ) -> AsyncGenerator[str, None]:
+    input: dict[str, Any] | Command,
+    graph: CompiledStateGraph,
+    **kwargs
+) -> AsyncGenerator[str, None]:
     """Asynchronously stream the result of the graph run.
 
     Args:
@@ -70,16 +71,14 @@ async def stream_graph_responses(
                 if isinstance(content, str):
                     yield content
                 elif isinstance(content, list):
-                    # Convert list content to string representation
                     yield str(content)
                 else:
-                    # Fallback for any other type
                     yield str(content)
 
 
 
 async def main():
-    async with AsyncSqliteSaver.from_conn_string(SQLITE_CHECKPOINTS_URI) as checkpointer:
+    async with AsyncSqliteSaver.from_conn_string(settings.SQLITE_CHECKPOINTS_URI) as checkpointer:
         config = RunnableConfig(
             recursion_limit=10,
             configurable={
@@ -91,13 +90,18 @@ async def main():
             {
                 "arxiv": {
                     "command": "python",
-                    "args": ["-m", "mcp_servers.arxiv.server"],
+                    "args": ["-m", "backend.mcp_servers.arxiv.server"],
+                    "transport": "stdio"
+                },
+                "books": {
+                    "command": "python",
+                    "args": ["-m", "backend.mcp_servers.books.server"],
                     "transport": "stdio"
                 }
             }
         )
         tools = await mcp_client.get_tools()
-        llm_with_tools = ChatOllama(model=CHAT_MODEL_NAME, temperature=0.1).bind_tools(tools)
+        llm_with_tools = ChatOllama(model=settings.CHAT_MODEL_NAME, temperature=0.1).bind_tools(tools)
         graph = build_graph(llm_with_tools, tools, checkpointer, None)
         while True:
             user_input = console.input("[green]>You:[/green] ")
@@ -118,8 +122,3 @@ async def main():
                     async for response in stream_graph_responses(Command(resume=user_decision), graph, config=config):
                         console.print(response, end="")
             console.print("\n")
-
-
-
-if __name__ == '__main__':
-    asyncio.run(main())

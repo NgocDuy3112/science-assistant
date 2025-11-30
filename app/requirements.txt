@@ -1,8 +1,8 @@
 mcp[cli]
-markitdown[all]
+pydantic_settings
 langchain-core
-langchain-openai
 langchain-ollama
+langchain-text-splitters
 langchain-mcp-adapters
 langgraph
 langgraph-supervisor
@@ -12,3 +12,5 @@ requests
 colorlog
 fuzzyfinder
 python-dateutil
+pymupdf
+pymupdf4llm
