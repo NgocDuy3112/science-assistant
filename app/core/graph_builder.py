@@ -13,8 +13,8 @@ from typing_extensions import Literal
 from uuid import uuid4
 
 
-from app.schemas.state import OverallState
-from app.utils.helpers import read_from_txt_path
+from app.schemas.state import State
+from app.utils.get_prompt import read_from_txt_path
 from app.configs import settings
 
 
@@ -26,7 +26,7 @@ CONTINUE_COMMANDS = ['continue', 'y', 'yes']
 
 
 def assistant_node(llm_with_tools: BaseChatModel):
-    def _assistant_node(state: OverallState) -> OverallState:
+    def _assistant_node(state: State) -> State:
         response = llm_with_tools.invoke(
             [SystemMessage(content=read_from_txt_path(settings.ARXIV_PROMPT_PATH).format(default_output_dir=settings.PAPERS_DIR))] + state.messages
         )
@@ -36,7 +36,7 @@ def assistant_node(llm_with_tools: BaseChatModel):
 
 
 
-def assistant_router(state: OverallState) -> Literal["tools_node", "human_node", "summarize_node", END]: # type: ignore
+def assistant_router(state: State) -> Literal["tools_node", "human_node", "summarize_node", END]: # type: ignore
     response: AIMessage = state.messages[-1]
     if response.tool_calls:
         if any(tool_call["name"] in RISKY_TOOLS for tool_call in response.tool_calls):
@@ -47,7 +47,7 @@ def assistant_router(state: OverallState) -> Literal["tools_node", "human_node",
 
 
 
-def summarize_node(state: OverallState) -> OverallState:
+def summarize_node(state: State) -> State:
     pass
 
 
@@ -57,7 +57,7 @@ def tools_node(tools: list):
 
 
 
-def human_node(state: OverallState) -> Command[Literal["tools_node", END]]: # type: ignore
+def human_node(state: State) -> Command[Literal["tools_node", END]]: # type: ignore
     response: AIMessage = state.messages[-1]
     tool_call_name = response.tool_calls[0]["name"]
     prompt  = f"Do you want me to process this tool: {tool_call_name}?" 
@@ -83,7 +83,7 @@ def human_node(state: OverallState) -> Command[Literal["tools_node", END]]: # ty
 
 
 def build_graph(llm_with_tools: BaseChatModel, tools: list, checkpointer, image_path: str | None = "images/graph.png"):
-    builder = StateGraph(OverallState)
+    builder = StateGraph(State)
     builder.add_node("assistant_node", assistant_node(llm_with_tools))
     builder.add_node("human_node", human_node)
     builder.add_node("tools_node", tools_node(tools))

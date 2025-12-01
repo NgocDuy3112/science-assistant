@@ -1,45 +1,36 @@
 from __future__ import annotations
 import os
 import arxiv
-import requests
-import concurrent.futures
+import httpx
+import asyncio
 from urllib.parse import urlparse
-from typing import Literal
 from dateutil import parser
 from datetime import timezone
 
 from app.configs import settings
 from app.logger import global_logger
-from app.schemas.arxiv_mcp import Paper
-from app.utils.arxiv_mcp import _optimize_query, _validate_categories, _fuzzy_find_filenames
+from app.schemas.paper import Paper
+from app.schemas.arxiv_tools import *
+from app.utils.arxiv_helpers import _optimize_query, _validate_categories, _fuzzy_find_filenames
 
 
 
 
-def search_papers_from_arxiv(
-    query: str, 
-    batch_size: int, 
-    sort_by: Literal["relevance", "lastUpdatedDate"], 
-    categories: list[str] | str = ['cs', 'math'],
-    date_from: str = None, 
-    date_to: str = None,
-    being_called_from_download_tool: bool = False
-) -> list[Paper]:
+async def search_papers(request: SearchPapersRequest) -> list[Paper]:
     if isinstance(categories, str):
         categories = [categories]
-    if not being_called_from_download_tool:
-        global_logger.info("Calling the `search_papers_from_arxiv` tool")
+    global_logger.info("Calling the `search_papers` tool")
     """Search arXiv using the official arxiv Python library."""
     try:
         query_parts = []
-        global_logger.debug(f"Original query: {query}")
+        global_logger.debug(f"Original query: {request.query}")
         # Process the query
-        if not query.strip():
-            raise Exception(f"[ERROR] Invalid query: {query}")
-        optimized_query = _optimize_query(query)
+        if not request.query.strip():
+            raise Exception(f"[ERROR] Invalid query: {request.query}")
+        optimized_query = _optimize_query(request.query)
         query_parts.append(f"({optimized_query})")
-        if optimized_query != query:
-            global_logger.debug(f"Optimized query: '{query}' -> '{optimized_query}'")
+        if optimized_query != request.query:
+            global_logger.debug(f"Optimized query: '{request.query}' -> '{optimized_query}'")
         # Process the categories
         if not _validate_categories(categories):
             raise Exception(f"[ERROR] Invalid categories")
@@ -56,27 +47,27 @@ def search_papers_from_arxiv(
             "relevance": arxiv.SortCriterion.Relevance,
             "lastUpdatedDate": arxiv.SortCriterion.LastUpdatedDate,
         }
-        sort_criterion = sort_map.get(sort_by, arxiv.SortCriterion.Relevance)
-        global_logger.debug(f"Sort by {sort_by}")
+        sort_criterion = sort_map.get(request.sort_by, arxiv.SortCriterion.Relevance)
+        global_logger.debug(f"Sort by {request.sort_by}")
         client = arxiv.Client()
         search = arxiv.Search(
             query=optimized_query,
-            max_results=batch_size,
+            max_results=request.batch_size,
             sort_by=sort_criterion
         )
         # Parse date filters if provided
         date_from_parsed = None
         date_to_parsed = None
-        if date_from:
+        if request.date_from:
             try:
-                date_from_parsed = parser.parse(date_from).replace(
+                date_from_parsed = parser.parse(request.date_from).replace(
                     tzinfo=timezone.utc
                 )
             except (ValueError, TypeError) as e:
                 global_logger.error(f"Error: Invalid date_from format - {str(e)}")
-        if date_to:
+        if request.date_to:
             try:
-                date_to_parsed = parser.parse(date_to).replace(
+                date_to_parsed = parser.parse(request.date_to).replace(
                     tzinfo=timezone.utc
                 )
             except (ValueError, TypeError) as e:
@@ -84,8 +75,9 @@ def search_papers_from_arxiv(
         # Process the result
         results: list[Paper] = []
         result_count = 0
-        for paper in client.results(search):
-            if result_count >= batch_size:
+        results_iter = client.results(search)
+        async for paper in results_iter:
+            if result_count >= request.batch_size:
                 break
             paper_date = paper.published
             if not paper_date.tzinfo:
@@ -106,8 +98,7 @@ def search_papers_from_arxiv(
                 pdf_url=paper.pdf_url,
                 primary_category=primary_category,
             ))
-        if not being_called_from_download_tool:
-            global_logger.info("`search_papers_from_arxiv` completed!")
+        global_logger.info("`search_papers_from_arxiv` completed!")
         return results
     except arxiv.ArxivError as e:
         global_logger.error(f"ArXiv API Error: {e}")
@@ -116,15 +107,7 @@ def search_papers_from_arxiv(
 
 
 
-def download_papers(
-    query: str, 
-    batch_size: int, 
-    sort_by: Literal["relevance", "lastUpdatedDate"], 
-    categories: list[str] | str = ['cs', 'math'],
-    date_from: str = None, 
-    date_to: str = None,
-    output_dir: str = settings.PAPERS_DIR
-) -> list[str]:
+async def download_papers(request: DownloadPapersRequest) -> list[str]:
     """Download multiple PDFs concurrently and return their saved paths.
 
     Args:
@@ -133,14 +116,14 @@ def download_papers(
     Returns:
         List of absolute file paths of the downloaded PDFs.
     """
-    def _download_one(paper: Paper, output_dir: str) -> str | None:
+    async def _download_one(session: httpx.AsyncClient, paper: Paper, output_dir: str):
         pdf_url = paper.pdf_url
         parsed_url = urlparse(pdf_url)
         if not (parsed_url and parsed_url.scheme and parsed_url.netloc):
             global_logger.error(f"Invalid URL: {pdf_url}")
             return None
         try:
-            response = requests.get(pdf_url, stream=True, timeout=20)
+            response = await session.get(pdf_url)
             response.raise_for_status()
             category = paper.primary_category.replace(".", "_")
             os.makedirs(os.path.join(output_dir, category), exist_ok=True)
@@ -153,7 +136,7 @@ def download_papers(
                 global_logger.info(f"File {output_path} already existed!. Skipping it.")
             else:
                 with open(output_path, "wb") as f:
-                    for chunk in response.iter_content(chunk_size=65536):
+                    async for chunk in response.aiter_bytes():
                         if chunk:
                             f.write(chunk)
                 global_logger.info(f"Download file {pdf_url} to {output_path} successfully!")
@@ -164,27 +147,20 @@ def download_papers(
     global_logger.info("Calling the `download_papers` tool")
     if output_dir is None:
         output_dir = os.path.expanduser(settings.PAPERS_DIR)
-    papers = search_papers_from_arxiv(
-        query,
-        batch_size,
-        sort_by,
-        categories,
-        date_from,
-        date_to,
+    papers = await search_papers(
+        request.query,
+        request.batch_size,
+        request.sort_by,
+        request.categories,
+        request.date_from,
+        request.date_to,
         being_called_from_download=True
     )
-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
-        futures = [executor.submit(_download_one, paper, output_dir) for paper in papers]
-        results = []
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                result = future.result()
-                if result is not None:
-                    results.append(result)
-            except Exception as e:
-                global_logger.error(f"Exception in download thread: {e}")
-        global_logger.info("`download_papers` completed!")
-        return results
+    async with httpx.AsyncClient(timeout=20) as session:
+        tasks = [ _download_one(session, paper, output_dir) for paper in papers ]
+        results = [ r for r in await asyncio.gather(*tasks) if r ]
+    global_logger.info("`download_papers` completed!")
+    return results
 
 
 def list_papers(papers_dir: str = settings.PAPERS_DIR):

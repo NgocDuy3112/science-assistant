@@ -14,7 +14,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from app.configs import settings
-from app.core.graph import build_graph
+from app.core.graph_builder import build_graph
 
 
 

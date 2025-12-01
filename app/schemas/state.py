@@ -7,7 +7,7 @@ from langchain_core.messages import BaseMessage
 
 
 
-class OverallState(BaseModel):
+class State(BaseModel):
     """The state of the agent.
     
     Attributes:
